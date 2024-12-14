@@ -6,7 +6,8 @@ const daemon = @import("daemon.zig");
 
 pub const Controller = struct {
     const CMD_DELIMITER = " ";
-
+    
+    rwLock: std.Thread.RwLock,
     processes: std.StringHashMap(Process),
 
     const ProcessingError = error {
@@ -49,16 +50,22 @@ pub const Controller = struct {
             // TODO: add pipe message back to client
             switch (mainCmd) {
                 .ADD => {
-                     self.add_process(allocator, command_parts, command_parts[cmd_len - 2], command_parts[cmd_len - 1]);
+                    self.rwLock.lockShared();
+                    defer self.rwLock.unlockShared(); 
+                    self.add_process(allocator, command_parts, command_parts[cmd_len - 2], command_parts[cmd_len - 1]);
                     return;
                 },
                 .REMOVE => {
+                    self.rwLock.lockShared();
+                    defer self.rwLock.unlockShared(); 
                     self.remove_process(allocator, command_parts[cmd_len - 1]);
                     return;
                 },
                 .STAT => {
-                    _ = stat();
-                    return;
+                    self.rwLock.lockShared();
+                    defer self.rwLock.unlockShared(); 
+                    const response = stat();
+                    return response;
                 }
                 
             }
@@ -84,8 +91,10 @@ pub const Controller = struct {
         };
     }
 
-    fn stat() []const u8{
-        return "";
+    fn stat(self: *const.Controller, allocator: *std.mem.Allocator,) []const u8{
+        const mem_size = if (self.processes == null) 0 else @sizeOf(@This()) + self.processes.len * @sizeOf(u8); 
+        const response = try std.fmt.allocPrint(allocator, "Processes: size: {}, length: {}", .{self.processes.len, mem_size}); 
+        return response;
     }
     
 };
