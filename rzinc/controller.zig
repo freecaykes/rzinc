@@ -27,19 +27,16 @@ pub const Controller = struct {
 
     fn read_pipe_loop(self: *const.Controller, allocator: *std.mem.Allocator) ProcessingError!void {
         // Create a named pipe if it doesn't exist
-        const res = os.mkfifo(commons.PIPE_PATH, 0o600);
-        if (res != 0 and (os.errno() != os.errno().EEXIST)) {
-            return ProcessingError.AllocationError;
-        }
+        const in_pipe = try os.open(commons.IN_PIPE_PATH, os.O.RDONLY);
+        defer os.close(in_pipe);
 
-        // Open the named pipe for reading
-        const file = try std.fs.File.openRead(commons.PIPE_PATH);
-        defer file.close();
+        const out_pipe = try os.open(commons.OUT_PIPE_PATH, os.O.WRONLY);
+        defer os.close(out_pipe);
 
         // Continuously read from the pipe
         while (true) {
             var buffer: [256]u8 = undefined;
-            const bytesRead = try file.readAll(buffer[0..]);
+            const bytesRead = try os.read(in_pipe, &buffer);
             const command = buffer[0..bytesRead];
             
             std.debug.print("Received command: {}\n", .{command});
@@ -53,19 +50,25 @@ pub const Controller = struct {
                     self.rwLock.lockShared();
                     defer self.rwLock.unlockShared(); 
                     self.add_process(allocator, command_parts, command_parts[cmd_len - 2], command_parts[cmd_len - 1]);
-                    return;
+                    
+                    const reply =  try std.fmt.allocPrint(allocator, "{} OK", .{command});
+                    _ = try os.write(out_pipe, reply);
+
                 },
                 .REMOVE => {
                     self.rwLock.lockShared();
                     defer self.rwLock.unlockShared(); 
                     self.remove_process(allocator, command_parts[cmd_len - 1]);
-                    return;
+
+                    const reply =  try std.fmt.allocPrint(allocator, "{} OK", .{command});
+                    _ = try os.write(out_pipe,reply);
                 },
                 .STAT => {
                     self.rwLock.lockShared();
                     defer self.rwLock.unlockShared(); 
                     const response = stat();
-                    return response;
+
+                    _ = try os.write(out_pipe, response);
                 }
                 
             }

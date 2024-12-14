@@ -1,4 +1,5 @@
 const std = @import("std");
+const os =  std.os;
 const linux = std.os.linux;
 const commons = @import("../commons/commons.zig");
 
@@ -24,8 +25,11 @@ pub fn main() !void {
     const allocator = std.heap.page_allocator;
 
     // Open the named pipe for writing as a file
-    const pipe = try std.fs.openFile(commons.PIPE_PATH, .{ .write = true });
-    defer pipe.close();
+    const in_pipe = try os.open(commons.IN_PIPE_PATH, os.O.RDONLY);
+    defer os.close(in_pipe);
+
+    const out_pipe = try os.open(commons.OUT_PIPE_PATH, os.O.WRONLY);
+    defer os.close(out_pipe); 
 
     const mainCmd = commons.Cmd.fromStr(args[1]);
     switch (mainCmd) {
@@ -49,8 +53,11 @@ pub fn main() !void {
             const command = try std.fmt.allocPrint(allocator, "add {s} {s} {s}", .{ trans_args, source, dest });
             defer allocator.free(command);
 
-            try pipe.writer(command);
-     
+            _ = try os.write(in_pipe, command);
+            const response = read_from(out_pipe);
+            const stdout = std.io.getStdOut().writer();
+            try stdout.print("{s}\n", .{response});
+            
         },
         .REMOVE => {
             std.debug.print("delete {}\n", .{args});
@@ -63,14 +70,29 @@ pub fn main() !void {
 
             const command: []const u8 = try std.fmt.allocPrint("del {s}", .{dest});
 
-            try pipe.writer(command); 
+            _ = try os.write(in_pipe, command);
+            const response = read_from(out_pipe);
+            const stdout = std.io.getStdOut().writer();
+            try stdout.print("{s}\n", .{response});
+
         },
         .STAT => {
             std.debug.print("stat {} \n", .{args});
 
-            try pipe.writer("stat");
+            _ = try os.write(in_pipe, "stat");
+            const response = read_from(out_pipe);
+            const stdout = std.io.getStdOut().writer();
+            try stdout.print("{s}\n", .{response});
+
         }
     }
+}
+
+fn read_from(pipe: std.fs.File) []const u8 {
+    var buffer: [256]u8 = undefined;
+    const bytesRead = try os.read(pipe, &buffer);
+    return buffer[0..bytesRead];
+
 }
 
 // Signal handler for SIGTERM to clear all
